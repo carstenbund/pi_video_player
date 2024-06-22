@@ -79,6 +79,27 @@ detect_sd_card() {
     echo "Detected SD card device: $SDCARD"
 }
 
+
+# Function to validate the provided SD card device
+validate_sd_card() {
+    if [[ ! -e $SDCARD ]]; then
+        echo "Error: Device $SDCARD does not exist."
+        exit 1
+    fi
+    
+    # Ensure the device is not a system disk
+    system_disks=$(mount | grep '^/dev/disk' | awk '{print $1}')
+    for sys_disk in $system_disks; do
+        if [[ $sys_disk == $SDCARD* ]]; then
+            echo "Error: Device $SDCARD is a system disk."
+            exit 1
+        fi
+    done
+    
+    echo "Validated SD card device: $SDCARD"
+}
+
+
 # Function to unmount all partitions of the SD card
 unmount_sd_card() {
     echo "Unmounting all partitions of the SD card..."
@@ -214,7 +235,13 @@ else
     download_os_image_linux
 fi
 
-detect_sd_card
+if [[ "$1" == ""]]; then
+    detect_sd_card
+else
+    SDCARD=$1
+    validate_sd_card
+fi
+
 unmount_sd_card
 
 # Write the OS image to the SD card
