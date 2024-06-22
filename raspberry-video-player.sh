@@ -84,7 +84,15 @@ unmount_sd_card() {
     echo "Unmounting all partitions of the SD card..."
     partitions=$(diskutil list $SDCARD | grep -o '/dev/disk[0-9]*s[0-9]*')
     for partition in $partitions; do
-        diskutil unmountDisk $partition
+        if diskutil unmount $partition; then
+            echo "Unmounted $partition successfully."
+        else
+            echo "Failed to unmount $partition. Trying again..."
+            if ! diskutil unmount force $partition; then
+                echo "Error: Unable to unmount $partition."
+                exit 1
+            fi
+        fi
     done
 }
 
@@ -240,6 +248,11 @@ chmod +x /Volumes/boot/firstboot.sh
 create_firstboot_service
 
 # Unmount the SD card
-diskutil unmountDisk $SDCARD
+if diskutil unmountDisk $SDCARD; then
+    echo "Unmounted SD card successfully."
+else
+    echo "Failed to unmount SD card. Please manually unmount it."
+    exit 1
+fi
 
 echo "SD card is ready. Insert it into your Raspberry Pi and power it on."
