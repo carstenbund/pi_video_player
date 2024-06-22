@@ -13,8 +13,8 @@ This repository contains a script to set up a Raspberry Pi as a video player. Th
 1. Clone this repository:
 
     ```bash
-    git clone https://github.com/<your-username>/raspberry-pi-video-player-setup.git
-    cd raspberry-pi-video-player-setup
+    git clone https://github.com/carstenbund/pi_video_player.git
+    cd pi_video_player
     ```
 
 2. Create a `config.sh` file with your Wi-Fi credentials:
