@@ -82,9 +82,10 @@ detect_sd_card() {
 # Function to unmount all partitions of the SD card
 unmount_sd_card() {
     echo "Unmounting all partitions of the SD card..."
-    partitions=$(diskutil list $SDCARD | grep -o '/dev/disk[0-9]*s[0-9]*')
+    partitions=$(diskutil list $SDCARD | grep -o 'disk[0-9]*s[0-9]*')
+    echo ${partitions}
     for partition in $partitions; do
-        if diskutil unmount $partition; then
+        if diskutil unmount /dev/$partition; then
             echo "Unmounted $partition successfully."
         else
             echo "Failed to unmount $partition. Trying again..."
