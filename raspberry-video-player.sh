@@ -79,26 +79,24 @@ detect_sd_card() {
     echo "Detected SD card device: $SDCARD"
 }
 
-
 # Function to validate the provided SD card device
 validate_sd_card() {
     if [[ ! -e $SDCARD ]]; then
         echo "Error: Device $SDCARD does not exist."
         exit 1
     fi
-    
+
     # Ensure the device is not a system disk
-    system_disks=$(mount | grep '^/dev/disk' | awk '{print $1}')
-    for sys_disk in $system_disks; do
-        if [[ $sys_disk == $SDCARD* ]]; then
+    system_mounts=$(mount | grep '^/dev/disk' | awk '{print $3}')
+    for mount_point in $system_mounts; do
+        if [[ $mount_point == "/" || $mount_point == "/System" || $mount_point == "/dev" ]]; then
             echo "Error: Device $SDCARD is a system disk."
             exit 1
         fi
     done
-    
+
     echo "Validated SD card device: $SDCARD"
 }
-
 
 # Function to unmount all partitions of the SD card
 unmount_sd_card() {
@@ -110,7 +108,7 @@ unmount_sd_card() {
             echo "Unmounted $partition successfully."
         else
             echo "Failed to unmount $partition. Trying again..."
-            if ! diskutil unmount force $partition; then
+            if ! diskutil unmount force /dev/$partition; then
                 echo "Error: Unable to unmount $partition."
                 exit 1
             fi
@@ -142,6 +140,17 @@ create_setup_script() {
 
 # Update package list and upgrade all packages
 sudo apt-get update && sudo apt-get upgrade -y
+
+# Ensure rfkill is installed and unblock Wi-Fi
+sudo apt-get install -y rfkill
+sudo rfkill unblock all
+
+# Create a new user and enable SSH
+sudo useradd -m -s /bin/bash newuser
+echo "newuser:newpassword" | sudo chpasswd
+sudo usermod -aG sudo newuser
+sudo systemctl enable ssh
+sudo systemctl start ssh
 
 # Install VLC media player
 sudo apt-get install -y vlc
@@ -196,14 +205,25 @@ EOF"
 # Function to create the first boot script
 create_firstboot_script() {
     echo "Creating first boot script..."
-    sudo bash -c "cat <<EOF > /Volumes/boot/firstboot.sh
+    sudo bash -c "cat <<'EOF' > /Volumes/boot/firstboot.sh
 #!/bin/bash
 
+# Check for network connection
+while ! ping -c 1 google.com &>/dev/null; do
+    echo "Waiting for network connection..."
+    sleep 5
+done
+
 # Run the setup script
-/home/pi/setup.sh
+bash /home/pi/setup.sh
+
+# Indicate successful completion
+touch /home/pi/setup_complete
 
 # Remove this script after first boot
-rm -- \"$0\"
+if [ -f /home/pi/setup_complete ]; then
+    rm -- "$0"
+fi
 EOF"
 }
 
@@ -213,6 +233,8 @@ create_firstboot_service() {
     sudo bash -c "cat <<EOF > /Volumes/boot/firstboot.service
 [Unit]
 Description=Run first boot script
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -235,7 +257,7 @@ else
     download_os_image_linux
 fi
 
-if [[ "$1" == ""]]; then
+if [[ -z "$1" ]]; then
     detect_sd_card
 else
     SDCARD=$1
@@ -244,9 +266,10 @@ fi
 
 unmount_sd_card
 
-# Write the OS image to the SD card
+# Write the OS image to the SD card using /dev/rdisk for better performance
+rdisk_device=$(echo $SDCARD | sed 's/disk/rdisk/')
 echo "Writing OS image to SD card..."
-if sudo dd if=$OS_IMAGE of=$SDCARD bs=4m status=progress conv=sync; then
+if sudo dd if=$OS_IMAGE of=/dev/$rdisk_device bs=4m status=progress conv=sync; then
     echo "OS image written to SD card."
 else
     echo "Error writing OS image to SD card."
