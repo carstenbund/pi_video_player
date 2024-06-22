@@ -51,4 +51,4 @@ The Raspberry Pi will automatically configure itself and set up a video player w
 After creating the `config.sh` file, you can run the following command to execute the setup script in one go:
 
 ```bash
-curl -s https://raw.githubusercontent.com/<your-username>/raspberry-pi-video-player-setup/main/setup.sh | bash
+curl -s https://raw.githubusercontent.com/carstenbund/raspberry-pi-video-player-setup/main/pi_video_player.sh | bash
