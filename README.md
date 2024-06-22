@@ -17,30 +17,38 @@ This repository contains a script to set up a Raspberry Pi as a video player. Th
     cd raspberry-pi-video-player-setup
     ```
 
-2. Make the setup script executable:
+2. Create a `config.sh` file with your Wi-Fi credentials:
+
+    ```bash
+    nano config.sh
+    ```
+
+    Add the following content:
+
+    ```bash
+    SSID="Your_SSID"
+    PSK="Your_Password"
+    ```
+
+3. Make the setup script executable:
 
     ```bash
     chmod +x setup.sh
     ```
 
-3. Run the setup script:
+4. Run the setup script:
 
     ```bash
     ./setup.sh
     ```
 
-4. Follow the on-screen instructions to complete the setup.
-
 5. Insert the prepared SD card into your Raspberry Pi and power it on.
 
 The Raspberry Pi will automatically configure itself and set up a video player with Samba file sharing.
 
-## Configuration
+## Quick Start
 
-Edit the `setup.sh` script to set your Wi-Fi credentials:
+After creating the `config.sh` file, you can run the following command to execute the setup script in one go:
 
 ```bash
-SSID="Your_SSID"
-PSK="Your_Password"
-
-
+curl -s https://raw.githubusercontent.com/<your-username>/raspberry-pi-video-player-setup/main/setup.sh | bash
