@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Source the configuration file for Wi-Fi credentials
+# Source the configuration file for Wi-Fi credentials and new user details
 CONFIG_FILE="config.sh"
 
 if [ -f "$CONFIG_FILE" ]; then
     source $CONFIG_FILE
 else
-    echo "Configuration file '$CONFIG_FILE' not found. Please create it with your Wi-Fi credentials."
+    echo "Configuration file '$CONFIG_FILE' not found. Please create it with your Wi-Fi credentials and new user details."
     exit 1
 fi
 
@@ -71,7 +71,7 @@ detect_sd_card() {
         fi
     done
 
-    if [ -z "$SDCARD" ]; then
+    if [ -z "$SDCARD" ]]; then
         echo "No new device detected. Please ensure the SD card is inserted correctly."
         exit 1
     fi
@@ -146,9 +146,9 @@ sudo apt-get install -y rfkill
 sudo rfkill unblock all
 
 # Create a new user and enable SSH
-sudo useradd -m -s /bin/bash newuser
-echo "newuser:newpassword" | sudo chpasswd
-sudo usermod -aG sudo newuser
+sudo useradd -m -s /bin/bash $NEW_USER
+echo "$NEW_USER:$NEW_PASS" | sudo chpasswd
+sudo usermod -aG sudo $NEW_USER
 sudo systemctl enable ssh
 sudo systemctl start ssh
 
