@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Source the configuration file for Wi-Fi credentials
+CONFIG_FILE="config.sh"
+
+if [ -f "$CONFIG_FILE" ]; then
+    source $CONFIG_FILE
+else
+    echo "Configuration file '$CONFIG_FILE' not found. Please create it with your Wi-Fi credentials."
+    exit 1
+fi
+
 # Function to download the latest Raspberry Pi OS image
 download_os_image() {
     echo "Downloading the latest Raspberry Pi OS image..."
@@ -143,10 +153,6 @@ EOF
 }
 
 # Main script execution
-
-# Set Wi-Fi credentials
-SSID="Your_SSID"
-PSK="Your_Password"
 
 # Download the latest Raspberry Pi OS image
 download_os_image
