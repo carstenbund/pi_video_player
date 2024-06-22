@@ -5,8 +5,8 @@ This repository contains a script to set up a Raspberry Pi as a video player. Th
 ## Prerequisites
 
 - macOS
-- An SD card
-- An SD card reader
+- A SD card
+- A SD card reader
 
 ## Instructions
 
