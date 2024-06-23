@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Source the configuration file for Wi-Fi credentials
+# Source the configuration file for Wi-Fi credentials and new user details
 CONFIG_FILE="config.sh"
 
 if [ -f "$CONFIG_FILE" ]; then
     source $CONFIG_FILE
 else
-    echo "Configuration file '$CONFIG_FILE' not found. Please create it with your Wi-Fi credentials."
+    echo "Configuration file '$CONFIG_FILE' not found. Please create it with your Wi-Fi credentials and new user details."
     exit 1
 fi
 
@@ -141,6 +141,17 @@ create_setup_script() {
 # Update package list and upgrade all packages
 sudo apt-get update && sudo apt-get upgrade -y
 
+# Ensure rfkill is installed and unblock Wi-Fi
+sudo apt-get install -y rfkill
+sudo rfkill unblock all
+
+# Create a new user and enable SSH
+sudo useradd -m -s /bin/bash $NEW_USER
+echo "$NEW_USER:$NEW_PASS" | sudo chpasswd
+sudo usermod -aG sudo $NEW_USER
+sudo systemctl enable ssh
+sudo systemctl start ssh
+
 # Install VLC media player
 sudo apt-get install -y vlc
 
@@ -194,14 +205,25 @@ EOF"
 # Function to create the first boot script
 create_firstboot_script() {
     echo "Creating first boot script..."
-    sudo bash -c "cat <<EOF > /Volumes/boot/firstboot.sh
+    sudo bash -c "cat <<'EOF' > /Volumes/boot/firstboot.sh
 #!/bin/bash
 
+# Check for network connection
+while ! ping -c 1 google.com &>/dev/null; do
+    echo "Waiting for network connection..."
+    sleep 5
+done
+
 # Run the setup script
-/home/pi/setup.sh
+bash /home/pi/setup.sh
+
+# Indicate successful completion
+touch /home/pi/setup_complete
 
 # Remove this script after first boot
-rm -- \"$0\"
+if [ -f /home/pi/setup_complete ]; then
+    rm -- \"$0\"
+fi
 EOF"
 }
 
@@ -211,6 +233,8 @@ create_firstboot_service() {
     sudo bash -c "cat <<EOF > /Volumes/boot/firstboot.service
 [Unit]
 Description=Run first boot script
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -233,7 +257,7 @@ else
     download_os_image_linux
 fi
 
-if [ "$1" == "" ]; then
+if [ -z "$1" ]; then
     detect_sd_card
 else
     SDCARD=$1
@@ -284,3 +308,4 @@ else
 fi
 
 echo "SD card is ready. Insert it into your Raspberry Pi and power it on."
+        
