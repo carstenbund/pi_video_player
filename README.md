@@ -28,6 +28,9 @@ This repository contains a script to set up a Raspberry Pi as a video player. Th
     ```bash
     SSID="Your_SSID"
     PSK="Your_Password"
+    NEW_USER="vplayer"
+    NEW_PASS="vplayer"
+
     ```
 
 3. Make the setup script executable:
