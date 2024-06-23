@@ -215,39 +215,27 @@ while ! ping -c 1 google.com &>/dev/null; do
 done
 
 # Run the setup script
-bash /home/pi/setup.sh
+bash /boot/setup.sh
 
 # Indicate successful completion
-touch /home/pi/setup_complete
+touch /boot/setup_complete
 
 # Remove this script after first boot
-if [ -f /home/pi/setup_complete ]; then
+if [ -f /boot/setup_complete ]; then
     rm -- \"$0\"
 fi
 EOF"
 }
 
-# Function to create the first boot service
-create_firstboot_service() {
-    echo "Creating first boot service..."
-    sudo bash -c "cat <<EOF > /Volumes/boot/firstboot.service
-[Unit]
-Description=Run first boot script
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/bin/bash /home/pi/firstboot.sh
-RemainAfterExit=true
-
-[Install]
-WantedBy=multi-user.target
+# Function to update rc.local to run the first boot script
+update_rc_local() {
+    echo "Updating rc.local to run the first boot script..."
+    sudo bash -c "cat <<'EOF' >> /Volumes/boot/rc.local
+# Run firstboot script on first boot
+if [ -f /boot/firstboot.sh ]; then
+    bash /boot/firstboot.sh
+fi
 EOF"
-
-    sudo mkdir -p /Volumes/boot/etc/systemd/system/
-    sudo mv /Volumes/boot/firstboot.service /Volumes/boot/etc/systemd/system/firstboot.service
-    sudo ln -s /Volumes/boot/etc/systemd/system/firstboot.service /Volumes/boot/etc/systemd/system/multi-user.target.wants/firstboot.service
 }
 
 # Main script execution
@@ -265,7 +253,6 @@ else
 fi
 
 unmount_sd_card
-
 
 # Write the OS image to the SD card using /dev/rdisk for better performance
 rdisk_device=$(echo $SDCARD | sed 's/disk/rdisk/')
@@ -287,17 +274,11 @@ create_wpa_supplicant
 # Create and copy the setup script to the SD card
 create_setup_script
 
-# Make the setup script executable
-chmod +x /Volumes/boot/setup.sh
-
 # Create and copy the first boot script to the SD card
 create_firstboot_script
 
-# Make the first boot script executable
-chmod +x /Volumes/boot/firstboot.sh
-
-# Create the first boot service
-create_firstboot_service
+# Update rc.local to run the first boot script
+update_rc_local
 
 # Unmount the SD card
 if diskutil unmountDisk $SDCARD; then
@@ -308,4 +289,3 @@ else
 fi
 
 echo "SD card is ready. Insert it into your Raspberry Pi and power it on."
-        
