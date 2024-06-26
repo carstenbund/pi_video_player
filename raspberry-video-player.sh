@@ -1,12 +1,12 @@
 #!/bin/bash
 
+# Raspberry Pi OS image
+OS_IMAGE="2022-01-28-raspios-buster-arm64-lite.img"
 
-$OS_IMAGE="2022-01-28-raspios-buster-arm64-lite.img" 
-
-# rasperry os boot partition is called "boot"
+# Raspberry Pi OS boot partition
 TARGET_DRIVE="Volumes/boot"
-#test run
-TARGET_DRIVE="test"
+# Test run
+# TARGET_DRIVE="test"
 
 # Source the configuration file for Wi-Fi credentials and new user details
 CONFIG_FILE="config.sh"
@@ -18,13 +18,31 @@ else
     exit 1
 fi
 
+# Determine OS-specific variables
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    UNZIP="open -W"
+    DISK_PREFIX="/dev/disk"
+    RDISK_PREFIX="/dev/rdisk"
+    MOUNT_CMD="diskutil mount"
+    UMOUNT_CMD="diskutil unmountDisk"
+else
+    UNZIP="gunzip"
+    DISK_PREFIX="/dev/sd"
+    RDISK_PREFIX="/dev/sd"
+    MOUNT_CMD="sudo mount"
+    UMOUNT_CMD="sudo umount"
+fi
+
 # Function to download the Raspberry Pi OS image
 download_os_image() {
-    
+    echo "Downloading the Raspberry Pi OS image..."
     if [ ! -f $OS_IMAGE ]; then
-        echo "Downloading the Raspberry Pi OS image..."
-        OS_IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2022-01-28/"$OS_IMAGE
+        OS_IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2022-01-28/$OS_IMAGE"
         curl -L $OS_IMAGE_URL -o $OS_IMAGE
+        if [ $? -ne 0 ]; then
+            echo "Failed to download OS image."
+            exit 1
+        fi
         echo "Download complete: $OS_IMAGE"
         $UNZIP $OS_IMAGE
     else
@@ -32,24 +50,20 @@ download_os_image() {
     fi
 }
 
-
-# Function to detect the SD card device
-detect_sd_card() {
+# Function to detect and validate the SD card device
+detect_and_validate_sd_card() {
     echo "Detecting SD card device..."
-    # List all disk devices before inserting the SD card, MAC OS
-    disks_before=$(ls /dev/disk*)
+    disks_before=$(ls ${DISK_PREFIX}*)
 
     echo "Please insert the SD card and press Enter..."
     read -p ""
 
-    # List all disk devices after inserting the SD card, MAC OS
-    disks_after=$(ls /dev/disk*)
+    disks_after=$(ls ${DISK_PREFIX}*)
 
-    # Find the new device
     new_disks=$(comm -13 <(echo "$disks_before") <(echo "$disks_after"))
     SDCARD=""
     for disk in $new_disks; do
-        if [[ $disk == *disk* ]]; then
+        if [[ $disk == *disk* || $disk == *sd* ]]; then
             SDCARD=$disk
             break
         fi
@@ -60,64 +74,53 @@ detect_sd_card() {
         exit 1
     fi
 
-    echo "Detected SD card device: $SDCARD"
-}
-
-
-# Function to validate the provided SD card device
-validate_sd_card() {
     if [[ ! -e $SDCARD ]]; then
         echo "Error: Device $SDCARD does not exist."
         exit 1
     fi
     
-    # Ensure the device is not a system disk, MAC OS
-    system_mounts=$(mount | grep '^/dev/disk' | awk '{print $3}')
+    system_mounts=$(mount | grep "^${DISK_PREFIX}" | awk '{print $1}')
     for mount_point in $system_mounts; do
-        if [[ $mount_point == "/System" ]]; then
+        if [[ $mount_point == *disk0* || $mount_point == *sda* ]]; then
             echo "Error: Device $SDCARD is a system disk."
             exit 1
         fi
     done
     
-    echo "Validated SD card device: $SDCARD"
+    echo "Detected and validated SD card device: $SDCARD"
 }
-
 
 # Function to unmount all partitions of the SD card
 unmount_sd_card() {
     echo "Unmounting all partitions of the SD card..."
-    partitions=$(diskutil list $SDCARD | grep -o 'disk[0-9]*s[0-9]*') #MAC OS
+    partitions=$(ls ${DISK_PREFIX}* | grep -E "${DISK_PREFIX}[0-9]")
     echo ${partitions}
-    if diskutil unmountDisk $SDCARD; then
+    if $UMOUNT_CMD $SDCARD; then
         echo "Unmounted $SDCARD successfully."
     else
         echo "Failed to unmount $SDCARD Trying again..."
-        if ! diskutil unmountDisk force $SDCARD; then
+        if ! $UMOUNT_CMD force $SDCARD; then
             echo "Error: Unable to unmount $SDCARD"
             exit 1
         fi
     fi
 }
 
-
-write_os_image(){
-    # Write the OS image to the SD card using /dev/rdisk for better performance
-    rdisk_device=$(echo $SDCARD | sed 's/disk/rdisk/')
+write_os_image() {
     echo "Writing OS image to SD card..."
-    if sudo dd if=$OS_IMAGE of=$rdisk_device bs=4m status=progress conv=sync; then
+    if sudo dd if=$OS_IMAGE of=$RDISK_PREFIX${SDCARD##*/} bs=4m status=progress conv=sync; then
         echo "OS image written to SD card."
     else
         echo "Error writing OS image to SD card."
         exit 1
     fi
-}    
+}
 
 # Functions to write setup
 # Function to create wpa_supplicant.conf
 create_wpa_supplicant() {
     echo "Creating wpa_supplicant.conf..."
-    sudo bash -c "cat <<EOF > $1
+    sudo bash -c "cat <<EOF > $1/wpa_supplicant.conf
 country=US
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
@@ -128,12 +131,16 @@ network={
     key_mgmt=WPA-PSK
 }
 EOF"
+    if [ $? -ne 0 ]; then
+        echo "Failed to create wpa_supplicant.conf."
+        exit 1
+    fi
 }
 
 # Function to create the setup script
 create_setup_script() {
     echo "Creating setup script..."
-    sudo bash -c "cat <<'EOF' > $1
+    sudo bash -c "cat <<'EOF' > $1/setup.sh
 #!/bin/bash
 
 # Update package list and upgrade all packages
@@ -150,60 +157,30 @@ sudo usermod -aG sudo $NEW_USER
 sudo systemctl enable ssh
 sudo systemctl start ssh
 
-# Install VLC media player
-sudo apt-get install -y vlc
+# Install Git and pi_video_looper
+sudo apt-get install -y git
+git clone https://github.com/adafruit/pi_video_looper.git /home/pi/pi_video_looper
+cd /home/pi/pi_video_looper
+sudo ./install.sh
 
-# Install Samba for file sharing
-sudo apt-get install -y samba samba-common-bin
+# Indicate successful completion
+touch /boot/setup_complete
 
-# Configure Samba
-sudo smbpasswd -a pi <<EOT
-raspberry
-raspberry
-EOT
-
-sudo bash -c 'cat <<EOT >> /etc/samba/smb.conf
-
-[Videos]
-   path = /home/pi/Videos
-   browseable = yes
-   writeable = yes
-   only guest = no
-   create mask = 0777
-   directory mask = 0777
-   public = yes
-EOT'
-
-# Configure Samba for network discovery using nmbd and avahi (Bonjour)
-sudo apt-get install -y avahi-daemon
-sudo systemctl enable avahi-daemon
-sudo systemctl start avahi-daemon
-
-# Restart Samba service
-sudo systemctl restart smbd nmbd
-
-# Create a directory for videos
-mkdir -p ~/Videos
-
-# Copy the script to play videos on startup
-cat <<'EOT' > ~/play_video.sh
-#!/bin/bash
-cvlc --fullscreen --loop ~/Videos/*
-EOT
-
-chmod +x ~/play_video.sh
-
-# Add the play video script to crontab to run at startup
-(crontab -l ; echo "@reboot /home/pi/play_video.sh") | crontab -
-
-echo "Setup complete. The system will play videos from the Videos directory on startup."
+# Remove this script after setup
+if [ -f /boot/setup_complete ]; then
+    rm -- \"$0\"
+fi
 EOF"
+    if [ $? -ne 0 ]; then
+        echo "Failed to create setup script."
+        exit 1
+    fi
 }
 
 # Function to create the first boot script
 create_firstboot_script() {
     echo "Creating first boot script..."
-    sudo bash -c "cat <<'EOF' > $1
+    sudo bash -c "cat <<'EOF' > $1/firstboot.sh
 #!/bin/bash
 
 # Check for network connection
@@ -214,68 +191,70 @@ done
 
 # Run the setup script
 bash /boot/setup.sh
-
-# Indicate successful completion
-touch /boot/setup_complete
-
-# Remove this script after first boot
-if [ -f /boot/setup_complete ]; then
-    rm -- \"\$0\"
-fi
 EOF"
+    if [ $? -ne 0 ]; then
+        echo "Failed to create first boot script."
+        exit 1
+    fi
 }
 
 # Function to update rc.local to run the first boot script
 update_rc_local() {
     echo "Updating rc.local to run the first boot script..."
-    sudo bash -c "cat <<'EOF' >> $1
+    sudo bash -c "cat <<'EOF' >> $1/rc.local
 # Run firstboot script on first boot
 if [ -f /boot/firstboot.sh ]; then
     bash /boot/firstboot.sh
 fi
 EOF"
+    if [ $? -ne 0 ]; then
+        echo "Failed to update rc.local."
+        exit 1
+    fi
 }
 
 # Main script execution
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    UNZIP="open -W"
-    download_os_image
-else
-    UNZIP=gunzip
-    download_os_image
-fi
+echo "Starting main script execution..."
+download_os_image
 
 if [ -z "$1" ]; then
-    detect_sd_card
+    detect_and_validate_sd_card
 else
     SDCARD=$1
-    validate_sd_card
+    detect_and_validate_sd_card
 fi
 
-# sd card needs to be unmounted to write to drive
+# SD card needs to be unmounted to write to drive
 unmount_sd_card
 
-# write the image to sd card
+# Write the image to SD card
 write_os_image
 
 # Mount the boot partition
-BOOT_PARTITION="${SDCARD}s1"
-diskutil mount $BOOT_PARTITION
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    BOOT_PARTITION="${SDCARD}s1"
+    $MOUNT_CMD $BOOT_PARTITION
+    MOUNT_POINT="/Volumes/boot"
+else
+    sudo mount /dev/${SDCARD}1 /mnt
+    MOUNT_POINT="/mnt"
+fi
 
 # Create wpa_supplicant.conf
-create_wpa_supplicant ${TARGET_DRIVE}/wpa_supplicant.conf
+create_wpa_supplicant $MOUNT_POINT
 
 # Create and copy the setup script to the SD card
-create_setup_script ${TARGET_DRIVE}/setup.sh
+create_setup_script $MOUNT_POINT
 
 # Create and copy the first boot script to the SD card
-create_firstboot_script ${TARGET_DRIVE}/first_boot.sh
+create_firstboot_script $MOUNT_POINT
 
 # Update rc.local to run the first boot script
-update_rc_local ${TARGET_DRIVE}/rc.local
+update_rc_local $MOUNT_POINT
 
 # Unmount the SD card
-if diskutil unmountDisk $SDCARD; then
+echo "Unmounting the SD card..."
+if $UMOUNT_CMD $SDCARD; then
     echo "Unmounted SD card successfully."
 else
     echo "Failed to unmount SD card. Please manually unmount it."
@@ -283,4 +262,3 @@ else
 fi
 
 echo "SD card is ready. Insert it into your Raspberry Pi and power it on."
-        
