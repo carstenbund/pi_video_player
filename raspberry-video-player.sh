@@ -1,12 +1,17 @@
 #!/bin/bash
 
+# Debug mode flag
+DEBUG_MODE=true
+
 # Raspberry Pi OS image
 OS_IMAGE="2022-01-28-raspios-buster-arm64-lite.img"
 
 # Raspberry Pi OS boot partition
-TARGET_DRIVE="Volumes/boot"
-# Test run
-# TARGET_DRIVE="test"
+if [ "$DEBUG_MODE" = true ]; then
+    TARGET_DRIVE="test"
+else
+    TARGET_DRIVE="Volumes/boot"
+fi
 
 # Source the configuration file for Wi-Fi credentials and new user details
 CONFIG_FILE="config.sh"
@@ -16,6 +21,11 @@ if [ -f "$CONFIG_FILE" ]; then
 else
     echo "Configuration file '$CONFIG_FILE' not found. Please create it with your Wi-Fi credentials and new user details."
     exit 1
+fi
+
+# Ensure target drive directory exists in debug mode
+if [ "$DEBUG_MODE" = true ] && [ ! -d "$TARGET_DRIVE" ]; then
+    mkdir -p "$TARGET_DRIVE"
 fi
 
 # Determine OS-specific variables
@@ -108,11 +118,15 @@ unmount_sd_card() {
 
 write_os_image() {
     echo "Writing OS image to SD card..."
-    if sudo dd if=$OS_IMAGE of=$RDISK_PREFIX${SDCARD##*/} bs=4m status=progress conv=sync; then
-        echo "OS image written to SD card."
+    if [ "$DEBUG_MODE" = true ]; then
+        echo "Debug mode: Skipping writing OS image to SD card."
     else
-        echo "Error writing OS image to SD card."
-        exit 1
+        if sudo dd if=$OS_IMAGE of=$RDISK_PREFIX${SDCARD##*/} bs=4m status=progress conv=sync; then
+            echo "OS image written to SD card."
+        else
+            echo "Error writing OS image to SD card."
+            exit 1
+        fi
     fi
 }
 
@@ -225,19 +239,25 @@ else
 fi
 
 # SD card needs to be unmounted to write to drive
-unmount_sd_card
+if [ "$DEBUG_MODE" = false ]; then
+    unmount_sd_card
+fi
 
 # Write the image to SD card
 write_os_image
 
 # Mount the boot partition
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    BOOT_PARTITION="${SDCARD}s1"
-    $MOUNT_CMD $BOOT_PARTITION
-    MOUNT_POINT="/Volumes/boot"
+if [ "$DEBUG_MODE" = true ]; then
+    MOUNT_POINT="$TARGET_DRIVE"
 else
-    sudo mount /dev/${SDCARD}1 /mnt
-    MOUNT_POINT="/mnt"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        BOOT_PARTITION="${SDCARD}s1"
+        $MOUNT_CMD $BOOT_PARTITION
+        MOUNT_POINT="/Volumes/boot"
+    else
+        sudo mount /dev/${SDCARD}1 /mnt/sdcard
+        MOUNT_POINT="/mnt/sdcard"
+    fi
 fi
 
 # Create wpa_supplicant.conf
@@ -253,12 +273,16 @@ create_firstboot_script $MOUNT_POINT
 update_rc_local $MOUNT_POINT
 
 # Unmount the SD card
-echo "Unmounting the SD card..."
-if $UMOUNT_CMD $SDCARD; then
-    echo "Unmounted SD card successfully."
+if [ "$DEBUG_MODE" = false ]; then
+    echo "Unmounting the SD card..."
+    if $UMOUNT_CMD $SDCARD; then
+        echo "Unmounted SD card successfully."
+    else
+        echo "Failed to unmount SD card. Please manually unmount it."
+        exit 1
+    fi
 else
-    echo "Failed to unmount SD card. Please manually unmount it."
-    exit 1
+    echo "Debug mode: Skipping unmounting of SD card."
 fi
 
 echo "SD card is ready. Insert it into your Raspberry Pi and power it on."
