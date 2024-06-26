@@ -1,5 +1,13 @@
 #!/bin/bash
 
+
+$OS_IMAGE="2022-01-28-raspios-buster-arm64-lite.img" 
+
+# rasperry os boot partition is called "boot"
+TARGET_DRIVE="Volumes/boot"
+#test run
+TARGET_DRIVE="test"
+
 # Source the configuration file for Wi-Fi credentials and new user details
 CONFIG_FILE="config.sh"
 
@@ -10,55 +18,31 @@ else
     exit 1
 fi
 
-# Function to download the Raspberry Pi OS image for macOS
-download_os_image_macos() {
-    if [ ! -f "2022-01-28-raspios-bullseye-arm64-lite.img" ]; then
+# Function to download the Raspberry Pi OS image
+download_os_image() {
+    
+    if [ ! -f $OS_IMAGE ]; then
         echo "Downloading the Raspberry Pi OS image..."
-        OS_IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2022-01-28/2022-01-28-raspios-bullseye-arm64-lite.zip"
-        OS_IMAGE="2022-01-28-raspios-bullseye-arm64-lite.zip"
+        OS_IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2022-01-28/"$OS_IMAGE
         curl -L $OS_IMAGE_URL -o $OS_IMAGE
         echo "Download complete: $OS_IMAGE"
-        unzip $OS_IMAGE
+        $UNZIP $OS_IMAGE
     else
         echo "OS image already downloaded."
     fi
-    OS_IMAGE="2022-01-28-raspios-bullseye-arm64-lite.img"
 }
 
-# Function to download the latest Raspberry Pi OS image for Linux
-download_os_image_linux() {
-    if [ ! -f "raspios_latest.img" ]; then
-        echo "Downloading the latest Raspberry Pi OS image..."
-        OS_IMAGE_URL=$(curl -s https://downloads.raspberrypi.org/raspios_lite_armhf_latest | grep -o 'https://.*\.img\.xz')
-        OS_IMAGE="raspios_latest.img.xz"
-        curl -L $OS_IMAGE_URL -o $OS_IMAGE
-        echo "Download complete: $OS_IMAGE"
-        
-        # Check if xz-utils or tar is available
-        if command -v unxz &> /dev/null; then
-            unxz $OS_IMAGE
-        elif command -v tar &> /dev/null; then
-            tar -xf $OS_IMAGE
-        else
-            echo "Neither unxz nor tar is available to decompress the image."
-            exit 1
-        fi
-    else
-        echo "OS image already downloaded."
-    fi
-    OS_IMAGE="raspios_latest.img"
-}
 
 # Function to detect the SD card device
 detect_sd_card() {
     echo "Detecting SD card device..."
-    # List all disk devices before inserting the SD card
+    # List all disk devices before inserting the SD card, MAC OS
     disks_before=$(ls /dev/disk*)
 
     echo "Please insert the SD card and press Enter..."
     read -p ""
 
-    # List all disk devices after inserting the SD card
+    # List all disk devices after inserting the SD card, MAC OS
     disks_after=$(ls /dev/disk*)
 
     # Find the new device
@@ -87,7 +71,7 @@ validate_sd_card() {
         exit 1
     fi
     
-    # Ensure the device is not a system disk
+    # Ensure the device is not a system disk, MAC OS
     system_mounts=$(mount | grep '^/dev/disk' | awk '{print $3}')
     for mount_point in $system_mounts; do
         if [[ $mount_point == "/System" ]]; then
@@ -103,7 +87,7 @@ validate_sd_card() {
 # Function to unmount all partitions of the SD card
 unmount_sd_card() {
     echo "Unmounting all partitions of the SD card..."
-    partitions=$(diskutil list $SDCARD | grep -o 'disk[0-9]*s[0-9]*')
+    partitions=$(diskutil list $SDCARD | grep -o 'disk[0-9]*s[0-9]*') #MAC OS
     echo ${partitions}
     if diskutil unmountDisk $SDCARD; then
         echo "Unmounted $SDCARD successfully."
@@ -119,7 +103,7 @@ unmount_sd_card() {
 # Function to create wpa_supplicant.conf
 create_wpa_supplicant() {
     echo "Creating wpa_supplicant.conf..."
-    sudo bash -c "cat <<EOF > /Volumes/boot/wpa_supplicant.conf
+    sudo bash -c "cat <<EOF > $1
 country=US
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
@@ -135,7 +119,7 @@ EOF"
 # Function to create the setup script
 create_setup_script() {
     echo "Creating setup script..."
-    sudo bash -c "cat <<'EOF' > /Volumes/boot/setup.sh
+    sudo bash -c "cat <<'EOF' > $1
 #!/bin/bash
 
 # Update package list and upgrade all packages
@@ -205,7 +189,7 @@ EOF"
 # Function to create the first boot script
 create_firstboot_script() {
     echo "Creating first boot script..."
-    sudo bash -c "cat <<'EOF' > /Volumes/boot/firstboot.sh
+    sudo bash -c "cat <<'EOF' > $1
 #!/bin/bash
 
 # Check for network connection
@@ -222,7 +206,7 @@ touch /boot/setup_complete
 
 # Remove this script after first boot
 if [ -f /boot/setup_complete ]; then
-    rm -- \"$0\"
+    rm -- \"\$0\"
 fi
 EOF"
 }
@@ -230,7 +214,7 @@ EOF"
 # Function to update rc.local to run the first boot script
 update_rc_local() {
     echo "Updating rc.local to run the first boot script..."
-    sudo bash -c "cat <<'EOF' >> /Volumes/boot/rc.local
+    sudo bash -c "cat <<'EOF' >> $1
 # Run firstboot script on first boot
 if [ -f /boot/firstboot.sh ]; then
     bash /boot/firstboot.sh
@@ -240,9 +224,11 @@ EOF"
 
 # Main script execution
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    download_os_image_macos
+    UNZIP="open -W"
+    download_os_image
 else
-    download_os_image_linux
+    UNZIP=gunzip
+    download_os_image
 fi
 
 if [ -z "$1" ]; then
@@ -252,33 +238,27 @@ else
     validate_sd_card
 fi
 
+# sd card needs to be unmounted to write to drive
 unmount_sd_card
 
-# Write the OS image to the SD card using /dev/rdisk for better performance
-rdisk_device=$(echo $SDCARD | sed 's/disk/rdisk/')
-echo "Writing OS image to SD card..."
-if sudo dd if=$OS_IMAGE of=$rdisk_device bs=4m status=progress conv=sync; then
-    echo "OS image written to SD card."
-else
-    echo "Error writing OS image to SD card."
-    exit 1
-fi
+# write the image to sd card
+write_os_image
 
 # Mount the boot partition
 BOOT_PARTITION="${SDCARD}s1"
 diskutil mount $BOOT_PARTITION
 
 # Create wpa_supplicant.conf
-create_wpa_supplicant
+create_wpa_supplicant ${TARGET_DRIVE}/wpa_supplicant.conf
 
 # Create and copy the setup script to the SD card
-create_setup_script
+create_setup_script ${TARGET_DRIVE}/setup.sh
 
 # Create and copy the first boot script to the SD card
-create_firstboot_script
+create_firstboot_script ${TARGET_DRIVE}/first_boot.sh
 
 # Update rc.local to run the first boot script
-update_rc_local
+update_rc_local ${TARGET_DRIVE}/rc.local
 
 # Unmount the SD card
 if diskutil unmountDisk $SDCARD; then
@@ -289,3 +269,4 @@ else
 fi
 
 echo "SD card is ready. Insert it into your Raspberry Pi and power it on."
+        
