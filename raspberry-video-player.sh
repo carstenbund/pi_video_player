@@ -100,6 +100,20 @@ unmount_sd_card() {
     fi
 }
 
+
+write_os_image(){
+    # Write the OS image to the SD card using /dev/rdisk for better performance
+    rdisk_device=$(echo $SDCARD | sed 's/disk/rdisk/')
+    echo "Writing OS image to SD card..."
+    if sudo dd if=$OS_IMAGE of=$rdisk_device bs=4m status=progress conv=sync; then
+        echo "OS image written to SD card."
+    else
+        echo "Error writing OS image to SD card."
+        exit 1
+    fi
+}    
+
+# Functions to write setup
 # Function to create wpa_supplicant.conf
 create_wpa_supplicant() {
     echo "Creating wpa_supplicant.conf..."
