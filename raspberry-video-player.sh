@@ -3,6 +3,7 @@
 # Debug mode flag
 DEBUG_MODE=true
 
+
 # Raspberry Pi OS image
 OS_IMAGE="2022-01-28-raspios-buster-arm64-lite.img"
 
